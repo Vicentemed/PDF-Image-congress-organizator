@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+venv/
+Docs/
+Docs organizados/
+poppler-*/
+test_images/
+test_pdfs/
+*.spec
+dist/
+build/
