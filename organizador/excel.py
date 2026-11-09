@@ -1,5 +1,4 @@
 """Exportación de la memoria a Excel (documentos, conteo por año/categoría e informe)."""
-import re
 from collections import Counter, defaultdict
 from datetime import datetime
 
@@ -7,8 +6,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from . import duplicados
 from .config import CATEGORIAS
-from .reglas import sin_acentos
 
 COLUMNAS = [
     ("Fecha", "fecha", 12),
@@ -28,7 +27,7 @@ COLUMNAS = [
     ("Archivo original", "_archivo_original", 36),
     ("Verificado", "_verificado", 10),
     ("Confianza", "_confianza", 10),
-    ("Posible duplicado", "_duplicado", 30),
+    ("Duplicados", "_duplicado", 42),
     ("Método", "_metodo", 24),
 ]
 
@@ -54,7 +53,7 @@ def _valor(reg: dict, clave: str):
     if clave == "_confianza":
         return "verificado" if reg.get("verificado") else reg.get("confianza", "")
     if clave == "_duplicado":
-        return reg.get("posible_duplicado", "")
+        return reg.get("_estado_duplicado", "")
     if clave == "_metodo":
         return reg.get("metodo", "")
     v = c.get(clave, "")
@@ -68,23 +67,29 @@ def _orden_anio(a):
     return (1, 0) if not isinstance(a, int) else (0, -a)
 
 
-def _clave_actividad(reg: dict) -> tuple:
-    c = reg["campos"]
-    norm = lambda s: re.sub(r"[^a-z0-9]", "", sin_acentos(str(s or "")).lower())  # noqa: E731
-    return (c.get("fecha"), c.get("categoria"), norm(c.get("titular"))[:14], norm(c.get("evento"))[:40],
-            norm(c.get("titulo"))[:40])
-
-
 def _unicos(registros: list[dict]) -> list[dict]:
-    """Una sola entrada por actividad (p. ej. dos fotos de la misma constancia). Prefiere la verificada."""
-    vistos, salida = set(), []
-    for r in sorted(registros, key=lambda x: not x.get("verificado")):
-        k = _clave_actividad(r)
-        if r["campos"].get("fecha") and k in vistos:
-            continue
-        vistos.add(k)
-        salida.append(r)
-    return salida
+    """Una sola entrada por actividad (excluye duplicados descartados y posibles duplicados)."""
+    return duplicados.unicos(registros)
+
+
+def _marcar_duplicados(registros: list[dict]) -> None:
+    """Agrega a cada registro (solo para exportar) un texto con su estado de duplicado."""
+    por_id = {r["id"]: r for r in registros}
+    nombre = lambda r: r.get("archivo_nuevo") or r.get("archivo_original", "")  # noqa: E731
+    for r in registros:
+        r["_estado_duplicado"] = ""
+    for g in duplicados.grupos(registros):
+        principal = por_id[g["principal"]]
+        for mid in g["miembros"]:
+            r = por_id[mid]
+            if r.get("descartado"):
+                r["_estado_duplicado"] = f"Descartado (se conserva: {nombre(principal)})"
+            elif mid == g["principal"]:
+                otros = [nombre(por_id[o]) for o in g["miembros"] if o != mid and not por_id[o].get("descartado")]
+                if otros:
+                    r["_estado_duplicado"] = "Posible duplicado de: " + "; ".join(otros)
+            else:
+                r["_estado_duplicado"] = f"Posible duplicado de: {nombre(principal)} (no cuenta en totales)"
 
 
 def _encabezado(ws, titulos, fila=1):
@@ -98,6 +103,8 @@ def _encabezado(ws, titulos, fila=1):
 
 def exportar(registros: list[dict], ruta: str, nombre_completo: str = "") -> str:
     registros = sorted(registros, key=lambda r: (r["campos"].get("fecha") or "0000"), reverse=True)
+    registros = [dict(r) for r in registros]  # copias: no ensuciar la memoria con campos de exportación
+    _marcar_duplicados(registros)
     wb = Workbook()
 
     # ---- Hoja 1: documentos
@@ -109,7 +116,10 @@ def exportar(registros: list[dict], ruta: str, nombre_completo: str = "") -> str
             cel = ws.cell(row=i, column=j, value=_valor(reg, clave))
             cel.alignment = Alignment(vertical="top", wrap_text=clave in ("resumen", "titulo", "evento", "institucion"))
             cel.border = BORDE
-        if not reg.get("verificado") and reg.get("confianza") == "revisar":
+        if reg.get("descartado"):
+            for j in range(1, len(COLUMNAS) + 1):
+                ws.cell(row=i, column=j).font = Font(color="999999", strike=j == 1)
+        elif not reg.get("verificado") and reg.get("confianza") == "revisar":
             for j in range(1, len(COLUMNAS) + 1):
                 ws.cell(row=i, column=j).fill = AMARILLO
     for j, (_t, _c, w) in enumerate(COLUMNAS, 1):

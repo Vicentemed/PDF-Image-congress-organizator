@@ -18,7 +18,7 @@ if errorlevel 1 (
 )
 
 rem --- 2. Dependencias (solo se instalan si faltan) ----------------
-python -c "import pymupdf, rapidocr_onnxruntime, openpyxl, PIL, numpy" >nul 2>&1
+python -c "import pymupdf, rapidocr_onnxruntime, openpyxl, docx, PIL, numpy" >nul 2>&1
 if errorlevel 1 (
     echo Instalando dependencias por primera vez, espere unos minutos...
     python -m pip install -r requirements.txt

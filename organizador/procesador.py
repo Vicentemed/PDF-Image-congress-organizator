@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Callable
 
 from . import reglas
+from .duplicados import duplicados_de
 from .config import CATEGORIA_CORTA, CATEGORIAS, EXTENSIONES, TIPOS, Config
 from .extraccion import extraer_texto, hash_archivo
 from .llm import ClienteOllama
@@ -199,6 +200,10 @@ class Procesador:
         t0 = time.time()
 
         if reg and (not reprocesar or reg.get("verificado")):
+            if os.path.abspath(ruta) != os.path.abspath(reg.get("ruta_origen", "")):
+                self.log(f"  [=] Duplicado exacto: este mismo archivo ya está registrado como "
+                         f"«{reg.get('archivo_nuevo') or reg.get('archivo_original')}». No se duplica.")
+                return reg
             self.log(f"  Ya está en memoria{' (verificado)' if reg.get('verificado') else ''}: se reutiliza la clasificación.")
         else:
             texto = reg["texto"] if reg and reg.get("texto") else None
@@ -226,17 +231,19 @@ class Procesador:
             if anterior and anterior.get("ruta_destino"):
                 reg["ruta_destino"] = anterior["ruta_destino"]
 
-        if destino:
+        if destino and not reg.get("descartado"):
             self._copiar(reg, ruta, destino)
-        reg["posible_duplicado"] = self.memoria.buscar_duplicado(reg)
+        dups = [] if reg.get("descartado") else duplicados_de(reg, self.memoria.lista())
+        reg["posible_duplicado"] = "; ".join(o.get("archivo_nuevo") or o.get("archivo_original", "") for o, _m in dups)
         self.memoria.upsert(reg)
         c = reg["campos"]
         self.log(f"  → {c.get('categoria')} | {c.get('fecha') or 'sin fecha'} | {c.get('evento') or c.get('titulo') or '-'}")
         self.log(f"  → {reg.get('archivo_nuevo', '')}  [{reg.get('confianza')}, {time.time() - t0:.1f}s]")
         for a in reg.get("avisos", []):
             self.log(f"    · {a}")
-        if reg["posible_duplicado"]:
-            self.log(f"    · Posible duplicado de: {reg['posible_duplicado']}")
+        for o, motivo in dups:
+            self.log(f"    · [!] Posible duplicado de «{o.get('archivo_nuevo') or o.get('archivo_original')}» ({motivo}). "
+                     "Revíselo en «Duplicados».")
         return reg
 
     def _copiar(self, reg: dict, ruta: str, destino: str) -> None:
@@ -260,9 +267,28 @@ class Procesador:
         reg["archivo_nuevo"] = os.path.basename(objetivo)
         reg["ruta_destino"] = os.path.abspath(objetivo)
 
+    def mover_a_duplicados(self, reg: dict, destino: str) -> None:
+        """Mueve la copia organizada de un duplicado descartado a Destino/_Duplicados (no borra nada)."""
+        actual = reg.get("ruta_destino")
+        if not destino or not actual or not os.path.exists(actual):
+            return
+        if not os.path.abspath(actual).startswith(os.path.abspath(destino) + os.sep):
+            return
+        carpeta = os.path.join(destino, "_Duplicados")
+        os.makedirs(carpeta, exist_ok=True)
+        objetivo = _destino_libre(carpeta, os.path.basename(actual), propio=actual)
+        if os.path.abspath(objetivo) != os.path.abspath(actual):
+            shutil.move(actual, objetivo)
+        reg["archivo_nuevo"] = os.path.basename(objetivo)
+        reg["ruta_destino"] = os.path.abspath(objetivo)
+
     def reubicar(self, reg: dict, destino: str) -> None:
         """Tras una corrección manual, renombra/mueve la copia ya organizada."""
         fuente = reg.get("ruta_destino") or reg.get("ruta_origen")
+        if reg.get("descartado"):
+            self.mover_a_duplicados(reg, destino)
+            self.memoria.upsert(reg)
+            return
         if destino and fuente and os.path.exists(fuente):
             self._copiar(reg, fuente, destino)
             self.memoria.upsert(reg)

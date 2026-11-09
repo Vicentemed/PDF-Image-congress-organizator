@@ -50,6 +50,61 @@ class Memoria:
                 shutil.copy2(self.ruta, self.ruta + ".bak")
             os.replace(tmp, self.ruta)
 
+    # ------------------------------------------------------------ respaldos
+    def exportar_json(self) -> bytes:
+        """Contenido completo de la memoria (para descargar como respaldo)."""
+        with self._lock:
+            data = {
+                "version": VERSION,
+                "tipo": "respaldo-clasificador-constancias",
+                "exportado": datetime.now().isoformat(timespec="seconds"),
+                "total": len(self.documentos),
+                "documentos": sorted(self.documentos.values(), key=lambda d: d.get("campos", {}).get("fecha", "")),
+            }
+            return json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+
+    def fusionar(self, data: dict) -> dict:
+        """Agrega los documentos de un respaldo SIN borrar ni sobrescribir lo existente.
+
+        - Documentos nuevos (hash que no existe) → se agregan.
+        - Ya existentes → se conservan; solo se adopta la versión del respaldo si allá está
+          verificado y aquí no.
+        """
+        docs = data.get("documentos") if isinstance(data, dict) else None
+        if not isinstance(docs, list):
+            raise ValueError("El archivo no es un respaldo válido (falta la lista 'documentos').")
+        agregados = actualizados = sin_cambio = 0
+        with self._lock:
+            for d in docs:
+                if not isinstance(d, dict) or not re.fullmatch(r"[0-9a-f]{64}", str(d.get("id", ""))) \
+                        or not isinstance(d.get("campos"), dict):
+                    continue
+                actual = self.documentos.get(d["id"])
+                if actual is None:
+                    self.documentos[d["id"]] = d
+                    agregados += 1
+                elif d.get("verificado") and not actual.get("verificado"):
+                    for k in ("ruta_origen", "ruta_destino", "archivo_nuevo"):
+                        d[k] = actual.get(k, d.get(k))  # conservar ubicaciones de esta computadora
+                    self.documentos[d["id"]] = d
+                    actualizados += 1
+                else:
+                    sin_cambio += 1
+        return {"agregados": agregados, "actualizados": actualizados, "sin_cambio": sin_cambio}
+
+    def respaldo_diario(self, carpeta: str, conservar: int = 15) -> str | None:
+        """Copia memoria.json a carpeta/memoria_AAAA-MM-DD.json una vez al día; conserva los últimos N."""
+        if not os.path.exists(self.ruta):
+            return None
+        os.makedirs(carpeta, exist_ok=True)
+        destino = os.path.join(carpeta, f"memoria_{datetime.now():%Y-%m-%d}.json")
+        if not os.path.exists(destino):
+            shutil.copy2(self.ruta, destino)
+        archivos = sorted(f for f in os.listdir(carpeta) if re.fullmatch(r"memoria_\d{4}-\d{2}-\d{2}\.json", f))
+        for viejo in archivos[:-conservar]:
+            os.remove(os.path.join(carpeta, viejo))
+        return destino
+
     # ------------------------------------------------------------ registros
     def get(self, doc_id: str) -> dict | None:
         return self.documentos.get(doc_id)
@@ -121,22 +176,3 @@ class Memoria:
             if len(elegidos) >= k:
                 break
         return elegidos
-
-    def buscar_duplicado(self, reg: dict) -> str:
-        """Otro documento con misma fecha, categoría y evento/título muy parecido."""
-        c = reg["campos"]
-        if not c.get("fecha"):
-            return ""
-        clave = set(re.findall(r"[a-z]{4,}", normalizar((c.get("evento") or "") + " " + (c.get("titulo") or ""))))
-        for otro in self.documentos.values():
-            if otro["id"] == reg["id"]:
-                continue
-            oc = otro["campos"]
-            if oc.get("fecha") != c.get("fecha") or oc.get("categoria") != c.get("categoria"):
-                continue
-            if oc.get("titular") and c.get("titular") and normalizar(oc["titular"])[:12] != normalizar(c["titular"])[:12]:
-                continue
-            otra = set(re.findall(r"[a-z]{4,}", normalizar((oc.get("evento") or "") + " " + (oc.get("titulo") or ""))))
-            if clave and otra and len(clave & otra) / max(1, len(clave | otra)) >= 0.5:
-                return otro.get("archivo_nuevo") or otro.get("archivo_original", "")
-        return ""

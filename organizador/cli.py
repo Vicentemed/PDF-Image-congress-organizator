@@ -4,6 +4,9 @@
     python -m organizador entrenar Docs datos/etiquetas_docs.json
     python -m organizador evaluar
     python -m organizador excel "Docs clasificados/Productividad_academica.xlsx"
+    python -m organizador word informe.docx --anios 2024 2025 --categorias Ponencia
+    python -m organizador duplicados
+    python -m organizador respaldo respaldo.json      (o: --fusionar respaldo.json)
 """
 import argparse
 import json
@@ -118,6 +121,41 @@ def cmd_excel(a, cfg, mem):
     print(exportar(mem.lista(), a.salida, cfg.nombre_completo))
 
 
+def cmd_word(a, cfg, mem):
+    from .word import Filtros, generar_word
+    f = Filtros(anios=a.anios or [], categorias=a.categorias or [], solo_verificados=a.solo_verificados,
+                incluir_anexo=not a.sin_anexo, texto=a.buscar or "")
+    r = generar_word(mem.lista(), a.salida, cfg.nombre_completo, f)
+    print(f"{r['ruta']}  ({r['documentos']} actividades, periodo {r['periodo']})")
+
+
+def cmd_duplicados(a, cfg, mem):
+    from .duplicados import grupos
+    gs = grupos(mem.lista())
+    if not gs:
+        print("No se encontraron posibles duplicados.")
+    for i, g in enumerate(gs, 1):
+        estado = "PENDIENTE" if g["pendiente"] else "resuelto"
+        print(f"\nGrupo {i} [{estado}] — {', '.join(g['motivos'])}")
+        for mid in g["miembros"]:
+            r = mem.get(mid)
+            marca = "conservar" if mid == g["principal"] else ("descartado" if r.get("descartado") else "duplicado")
+            print(f"  [{marca:>10}] {r['campos'].get('fecha') or 'sin fecha'}  {r.get('archivo_nuevo') or r['archivo_original']}")
+
+
+def cmd_respaldo(a, cfg, mem):
+    if a.fusionar:
+        with open(a.fusionar, encoding="utf-8") as f:
+            res = mem.fusionar(json.load(f))
+        mem.guardar()
+        print(f"Fusionado: {res['agregados']} agregados, {res['actualizados']} actualizados, "
+              f"{res['sin_cambio']} ya existían.")
+    else:
+        with open(a.salida, "wb") as f:
+            f.write(mem.exportar_json())
+        print(f"Respaldo con {len(mem.documentos)} documentos: {a.salida}")
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="organizador", description="Clasificador de constancias académicas")
     p.add_argument("--sin-llm", action="store_true", help="usar solo el algoritmo de reglas")
@@ -134,6 +172,17 @@ def main(argv=None):
     s.add_argument("--limite", type=int, default=0)
     s = sub.add_parser("excel", help="regenerar el Excel desde la memoria")
     s.add_argument("salida")
+    s = sub.add_parser("word", help="informe general en Word con filtros")
+    s.add_argument("salida")
+    s.add_argument("--anios", nargs="*", help="p. ej. 2024 2025 SinFecha")
+    s.add_argument("--categorias", nargs="*", help="p. ej. Ponencia \"Evaluador / Revisor\"")
+    s.add_argument("--buscar", help="texto a buscar")
+    s.add_argument("--solo-verificados", action="store_true")
+    s.add_argument("--sin-anexo", action="store_true")
+    sub.add_parser("duplicados", help="listar grupos de posibles duplicados")
+    s = sub.add_parser("respaldo", help="exportar la memoria a un JSON, o fusionar un respaldo")
+    s.add_argument("salida", nargs="?", default="respaldo_memoria.json")
+    s.add_argument("--fusionar", metavar="ARCHIVO", help="agregar documentos de un respaldo sin borrar nada")
     a = p.parse_args(argv)
 
     if hasattr(sys.stdout, "reconfigure"):
@@ -144,7 +193,8 @@ def main(argv=None):
     if a.modelo:
         cfg.modelo = a.modelo
     mem = Memoria(a.memoria)
-    {"procesar": cmd_procesar, "entrenar": cmd_entrenar, "evaluar": cmd_evaluar, "excel": cmd_excel}[a.cmd](a, cfg, mem)
+    {"procesar": cmd_procesar, "entrenar": cmd_entrenar, "evaluar": cmd_evaluar, "excel": cmd_excel,
+     "word": cmd_word, "duplicados": cmd_duplicados, "respaldo": cmd_respaldo}[a.cmd](a, cfg, mem)
 
 
 if __name__ == "__main__":

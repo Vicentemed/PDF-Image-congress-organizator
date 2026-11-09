@@ -75,6 +75,21 @@ dialog h3{margin:0 0 12px}
 #toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#1d2433;color:#fff;padding:8px 16px;border-radius:8px;opacity:0;transition:.25s;pointer-events:none}
 #toast.on{opacity:1}
 td:first-child{white-space:nowrap}
+.e-duplicado{background:#ffe6d5;color:#9a3412}.e-descartado{background:#f2f4f7;color:#98a2b3;text-decoration:line-through}
+#btnDup.hay{background:#f97316;border-color:#f97316}
+.chips{display:flex;flex-wrap:wrap;gap:6px 14px;margin:4px 0 10px}
+.chips label{display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer}
+.chips input{width:auto}
+dialog.ancho{width:min(1100px,96vw);max-height:90vh}
+.grupo{border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:12px}
+.grupo h4{margin:0 0 8px;font-size:13px;color:#9a3412}
+.miembros{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+.miembro{border:1px solid var(--line);border-radius:8px;padding:8px;font-size:12px;cursor:pointer}
+.miembro.elegido{border-color:var(--accent);box-shadow:0 0 0 2px #cfe0f3}
+.miembro .mini{height:150px;background:#f2f4f7;border-radius:6px;overflow:hidden;display:flex;align-items:center;justify-content:center;margin-bottom:6px}
+.miembro .mini img{max-width:100%;max-height:100%}.miembro .mini iframe{width:100%;height:100%;border:0;pointer-events:none}
+.miembro b{display:block;word-break:break-all}
+.nota{font-size:12px;color:var(--muted)}
 @media (max-width:1000px){
   main{grid-template-columns:minmax(0,1fr)}
   header{flex-wrap:wrap}
@@ -87,6 +102,9 @@ td:first-child{white-space:nowrap}
   <h1>Clasificador de Constancias Académicas</h1>
   <span id="llm" class="pill no">verificando Qwen…</span>
   <span class="sp"></span>
+  <button id="btnDup" title="Revisar documentos posiblemente duplicados">Duplicados</button>
+  <button id="btnWord" title="Generar un informe general en Word con filtros">Informe Word</button>
+  <button id="btnRespaldo" title="Descargar toda la memoria (JSON) como respaldo">Respaldo JSON</button>
   <button id="btnCarpeta" title="Abrir la carpeta con los archivos renombrados">Abrir carpeta</button>
   <button id="btnExcel" title="Abrir el Excel consolidado">Abrir Excel</button>
   <button id="btnDescargar" title="Descargar una copia del Excel">Descargar Excel</button>
@@ -108,7 +126,7 @@ td:first-child{white-space:nowrap}
         <input id="buscar" type="search" placeholder="Buscar…" style="width:200px">
         <select id="fAnio"><option value="">Todos los años</option></select>
         <select id="fCat"><option value="">Todas las categorías</option></select>
-        <select id="fEstado"><option value="">Todos</option><option value="revisar">Por revisar</option><option value="verificado">Verificados</option></select>
+        <select id="fEstado"><option value="">Todos</option><option value="revisar">Por revisar</option><option value="verificado">Verificados</option><option value="duplicado">Posibles duplicados</option><option value="descartado">Duplicados descartados</option></select>
         <div class="stats" id="stats"></div>
       </div>
       <div id="progreso"><div></div></div>
@@ -139,16 +157,46 @@ td:first-child{white-space:nowrap}
     <label>Modelo</label><select id="cModelo"></select>
   </div>
   <p class="info">Los archivos que arrastres se guardan en la carpeta de origen; las copias renombradas y el Excel van a la carpeta de destino.</p>
+  <p class="info"><b>Respaldo:</b> además del botón «Respaldo JSON», la app guarda una copia automática diaria en <code>datos/respaldos</code>.<br>
+  <button id="btnFusionar" type="button" style="margin-top:6px">Restaurar / fusionar un respaldo…</button><br>
+  Fusionar agrega los documentos que falten y no borra ni sobrescribe lo que ya tienes.</p>
   <div class="acciones" style="justify-content:flex-end">
     <button onclick="dlgConfig.close()">Cancelar</button>
     <button class="primary" id="btnGuardarCfg">Guardar</button>
   </div>
 </dialog>
+<dialog id="dlgWord">
+  <h3>Informe general en Word</h3>
+  <p class="nota">Elige qué incluir. Si no marcas ningún año o categoría se incluyen todos. Los duplicados se cuentan una sola vez.</p>
+  <b>Años</b><div class="chips" id="wAnios"></div>
+  <b>Categorías</b><div class="chips" id="wCats"></div>
+  <b>Opciones</b>
+  <div class="chips">
+    <label><input type="checkbox" id="wAnexo" checked> Incluir anexo con la tabla de documentos</label>
+    <label><input type="checkbox" id="wVerif"> Solo documentos verificados</label>
+    <label><input type="checkbox" id="wAjenos"> Incluir documentos donde no aparezco</label>
+  </div>
+  <div class="form"><label>Buscar texto (opcional)</label><input id="wTexto" placeholder="p. ej. UAA, odontología…"></div>
+  <p class="nota" id="wConteo"></p>
+  <div class="acciones" style="justify-content:flex-end">
+    <button onclick="dlgWord.close()">Cancelar</button>
+    <button class="primary" id="btnGenerarWord">Generar y descargar</button>
+  </div>
+</dialog>
+
+<dialog id="dlgDup" class="ancho">
+  <h3>Identificador de duplicados</h3>
+  <p class="nota">Se consideran posibles duplicados los documentos con la misma fecha, categoría, titular y evento, o con texto casi idéntico.
+  Un archivo idéntico (mismo contenido) nunca se registra dos veces. Al descartar, la copia se mueve a <code>_Duplicados</code> y deja de contar en Excel y Word; no se borra nada.</p>
+  <div id="dupLista"></div>
+  <div class="acciones" style="justify-content:flex-end"><button onclick="dlgDup.close()">Cerrar</button></div>
+</dialog>
+<input id="fileRespaldo" type="file" accept=".json,application/json" hidden>
 <div id="toast"></div>
 
 <script>
 const $ = s => document.querySelector(s);
-let docs = [], sel = null, logDesde = 0, orden = {k:"fecha", desc:true}, cfg = {}, CATS = [], TIPOS = [], trabajando = false;
+let docs = [], grupos = [], dupInfo = {}, sel = null, logDesde = 0, orden = {k:"fecha", desc:true}, cfg = {}, CATS = [], TIPOS = [], trabajando = false;
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("on");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("on"),2600)}
 async function api(url, body){
@@ -157,11 +205,17 @@ async function api(url, body){
   if(!r.ok) throw new Error(j.error || r.statusText);
   return j;
 }
-const estadoDe = d => d.verificado ? "verificado" : (d.confianza || "");
+const estadoDe = d => d.descartado ? "descartado" : (dupInfo[d.id] ? "duplicado" : (d.verificado ? "verificado" : (d.confianza || "")));
+const nombreDe = d => d.archivo_nuevo || d.archivo_original;
 const catDe = d => d.campos.mi_nombre_presente ? d.campos.categoria : "Sin mi nombre";
 
 async function cargarDocs(){
-  docs = await api("/api/documentos");
+  const r = await api("/api/documentos");
+  docs = r.documentos; grupos = r.duplicados; dupInfo = {};
+  grupos.filter(g=>g.pendiente).forEach(g => g.miembros.forEach(id => { const d = docs.find(x=>x.id===id); if(d && !d.descartado) dupInfo[id] = g; }));
+  const nPend = grupos.filter(g=>g.pendiente).length;
+  $("#btnDup").textContent = nPend ? `Duplicados (${nPend})` : "Duplicados";
+  $("#btnDup").classList.toggle("hay", nPend>0);
   const anios = [...new Set(docs.map(d => (d.campos.fecha||"").slice(0,4) || "SinFecha"))].sort().reverse();
   const fA = $("#fAnio"), v = fA.value;
   fA.innerHTML = '<option value="">Todos los años</option>' + anios.map(a=>`<option>${a}</option>`).join("");
@@ -176,6 +230,9 @@ function filtrados(){
     const anio = (d.campos.fecha||"").slice(0,4) || "SinFecha";
     if(a && anio!==a) return false;
     if(c && catDe(d)!==c) return false;
+    if(e==="descartado") return !!d.descartado;
+    if(d.descartado) return false;
+    if(e==="duplicado" && !dupInfo[d.id]) return false;
     if(e==="revisar" && (d.verificado || d.confianza!=="revisar")) return false;
     if(e==="verificado" && !d.verificado) return false;
     if(q && !(JSON.stringify(d.campos)+d.archivo_original+(d.archivo_nuevo||"")).toLowerCase().includes(q)) return false;
@@ -198,8 +255,10 @@ function pintar(){
       <td><div class="trunc" style="max-width:260px" title="${esc(d.archivo_nuevo)}">${esc(d.archivo_nuevo||d.archivo_original)}</div></td>
       <td><span class="badge e-${est}">${esc(est)}</span></td></tr>`;
   }).join("") || `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:30px">Sin documentos. Arrastra archivos arriba o clasifica la carpeta de origen.</td></tr>`;
-  const ver = docs.filter(d=>d.verificado).length, rev = docs.filter(d=>!d.verificado && d.confianza==="revisar").length;
-  $("#stats").innerHTML = `<span class="stat"><b>${lista.length}</b> de ${docs.length}</span><span class="stat"><b>${ver}</b> verificados</span><span class="stat"><b>${rev}</b> por revisar</span>`;
+  const activos = docs.filter(d=>!d.descartado);
+  const ver = activos.filter(d=>d.verificado).length, rev = activos.filter(d=>!d.verificado && d.confianza==="revisar").length;
+  const nd = Object.keys(dupInfo).length;
+  $("#stats").innerHTML = `<span class="stat"><b>${lista.length}</b> de ${activos.length}</span><span class="stat"><b>${ver}</b> verificados</span><span class="stat"><b>${rev}</b> por revisar</span>` + (nd?`<span class="stat" style="background:#ffe6d5"><b>${nd}</b> posibles duplicados</span>`:"");
 }
 
 function campoInput(k, label, valor, tipo){
@@ -215,7 +274,11 @@ function mostrar(id, recargarVista=true){
   const prev = $("#detalle .preview");
   const vista = (!recargarVista && prev && prev.dataset.id===id) ? prev.outerHTML :
     `<div class="preview" data-id="${id}">${esPdf ? `<iframe src="/api/archivo/${id}#view=FitH&toolbar=0"></iframe>` : `<img src="/api/archivo/${id}" alt="">`}</div>`;
-  const avisos = (d.avisos||[]).map(a=>`<div class="aviso">${esc(a)}</div>`).join("") + (d.posible_duplicado?`<div class="aviso">Posible duplicado de: ${esc(d.posible_duplicado)}</div>`:"");
+  const g = dupInfo[d.id];
+  const otros = g ? g.miembros.filter(x=>x!==d.id).map(x=>nombreDe(docs.find(y=>y.id===x)||{})) : [];
+  const avisos = (d.avisos||[]).map(a=>`<div class="aviso">${esc(a)}</div>`).join("") +
+    (g ? `<div class="aviso">Posible duplicado de: ${esc(otros.join("; "))} (${esc(g.motivos.join("; "))}). <a href="#" onclick="abrirDuplicados();return false">Revisar</a></div>` : "") +
+    (d.descartado ? `<div class="aviso">Duplicado descartado: no cuenta en Excel ni Word. <a href="#" onclick="restaurar('${d.id}');return false">Restaurar</a></div>` : "");
   $("#detalle").innerHTML = `
     <h2>${esc(d.archivo_nuevo||d.archivo_original)}</h2>
     <div class="info">Original: ${esc(d.archivo_original)} · <span class="badge e-${estadoDe(d)}">${esc(estadoDe(d))}</span></div>
@@ -275,6 +338,112 @@ async function subir(files){
   toast(`${lista.length} archivo(s) recibidos; clasificando…`);
 }
 
+// ---------------- Informe Word
+function abrirWord(){
+  const anios = [...new Set(docs.filter(d=>!d.descartado).map(d => (d.campos.fecha||"").slice(0,4) || "SinFecha"))].sort().reverse();
+  const fA = $("#fAnio").value, fC = $("#fCat").value;
+  $("#wAnios").innerHTML = anios.map(a=>`<label><input type="checkbox" value="${a}" ${a===fA?"checked":""}> ${a==="SinFecha"?"Sin fecha":a}</label>`).join("");
+  $("#wCats").innerHTML = CATS.map(c=>`<label><input type="checkbox" value="${esc(c)}" ${c===fC?"checked":""}> ${esc(c)}</label>`).join("");
+  $("#wTexto").value = $("#buscar").value;
+  $("#wVerif").checked = $("#fEstado").value==="verificado";
+  contarWord();
+  $("#dlgWord").showModal();
+}
+function filtrosWord(){
+  const marcados = s => [...document.querySelectorAll(s+" input:checked")].map(i=>i.value);
+  return {anios: marcados("#wAnios"), categorias: marcados("#wCats"), anexo: $("#wAnexo").checked,
+          verif: $("#wVerif").checked, ajenos: $("#wAjenos").checked, texto: $("#wTexto").value.trim()};
+}
+function contarWord(){
+  const f = filtrosWord(), q = f.texto.toLowerCase();
+  const n = docs.filter(d => !d.descartado && !(dupInfo[d.id] && dupInfo[d.id].miembros[0]!==d.id)
+    && (f.ajenos || d.campos.mi_nombre_presente)
+    && (!f.anios.length || f.anios.includes((d.campos.fecha||"").slice(0,4) || "SinFecha"))
+    && (!f.categorias.length || f.categorias.includes(d.campos.categoria))
+    && (!f.verif || d.verificado)
+    && (!q || JSON.stringify(d.campos).toLowerCase().includes(q))).length;
+  $("#wConteo").textContent = `El informe incluirá aproximadamente ${n} actividad(es).`;
+}
+async function generarWord(){
+  const f = filtrosWord();
+  const p = new URLSearchParams({anios:f.anios.join(","), categorias:f.categorias.join("|"), anexo:f.anexo?"1":"0",
+    solo_verificados:f.verif?"1":"0", sin_mi_nombre:f.ajenos?"1":"0", texto:f.texto});
+  const btn = $("#btnGenerarWord"); btn.disabled = true;
+  try{
+    const r = await fetch("/api/word?"+p);
+    if(!r.ok){ const j = await r.json().catch(()=>({})); toast(j.error || "No se pudo generar el informe"); return; }
+    const blob = await r.blob();
+    const cd = r.headers.get("Content-Disposition") || "";
+    const nombre = decodeURIComponent(cd.includes("''") ? cd.split("''")[1] : "Informe.docx");
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = nombre; a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+    $("#dlgWord").close(); toast("Informe generado (también quedó en la carpeta Informes del destino)");
+  } finally { btn.disabled = false; }
+}
+
+// ---------------- Duplicados
+function tarjeta(d, elegido){
+  const esPdf = /\.pdf$/i.test(d.archivo_original), c = d.campos;
+  return `<div class="miembro ${elegido?"elegido":""}" data-id="${d.id}">
+    <div class="mini">${esPdf ? `<iframe src="/api/archivo/${d.id}#toolbar=0&view=Fit"></iframe>` : `<img src="/api/archivo/${d.id}" alt="">`}</div>
+    <label style="display:flex;gap:6px;align-items:center;font-size:12px"><input type="radio" ${elegido?"checked":""}> Conservar este</label>
+    <b>${esc(nombreDe(d))}</b>
+    <div>Original: ${esc(d.archivo_original)}</div>
+    <div>${esc(c.fecha||"sin fecha")} · ${esc(c.categoria)} · ${d.verificado?"verificado":esc(d.confianza||"")}</div>
+    <div>${esc(c.evento||c.titulo||"")}</div></div>`;
+}
+function abrirDuplicados(){
+  const pend = grupos.filter(g=>g.pendiente), desc = docs.filter(d=>d.descartado);
+  let html = pend.length ? "" : `<p class="nota" style="padding:16px;text-align:center">✔ No hay posibles duplicados pendientes.</p>`;
+  pend.forEach((g, i) => {
+    const miembros = g.miembros.map(id=>docs.find(d=>d.id===id)).filter(d=>d && !d.descartado);
+    html += `<div class="grupo" data-g="${i}"><h4>Grupo ${i+1}: ${esc(g.motivos.join("; "))}</h4>
+      <div class="miembros">${miembros.map(d=>tarjeta(d, d.id===miembros[0].id)).join("")}</div>
+      <div class="acciones"><button class="primary" data-acc="resolver">Conservar el marcado y descartar los demás</button>
+      <button data-acc="noson">No son duplicados</button></div></div>`;
+  });
+  if(desc.length){
+    html += `<h4 style="margin:16px 0 6px">Descartados (${desc.length})</h4>` + desc.map(d => {
+      const p = docs.find(x=>x.id===d.duplicado_de);
+      return `<div class="nota" style="padding:4px 0">${esc(nombreDe(d))} → se conserva ${esc(p?nombreDe(p):"(otro documento)")}
+        <button style="margin-left:8px" onclick="restaurar('${d.id}')">Restaurar</button></div>`;}).join("");
+  }
+  $("#dupLista").innerHTML = html;
+  $("#dupLista").querySelectorAll(".grupo").forEach(div => {
+    const g = pend[+div.dataset.g];
+    div.querySelectorAll(".miembro").forEach(m => m.onclick = () => {
+      div.querySelectorAll(".miembro").forEach(x=>{ x.classList.toggle("elegido", x===m); x.querySelector("input").checked = x===m; });
+    });
+    div.querySelector('[data-acc="resolver"]').onclick = async () => {
+      const ids = [...div.querySelectorAll(".miembro")].map(m=>m.dataset.id);
+      const conservar = div.querySelector(".miembro.elegido").dataset.id;
+      try{ await api("/api/duplicados/resolver", {conservar, descartar: ids.filter(x=>x!==conservar)}); toast("Duplicado resuelto"); }
+      catch(e){ toast(e.message); }
+      await cargarDocs(); abrirDuplicados();
+    };
+    div.querySelector('[data-acc="noson"]').onclick = async () => {
+      try{ await api("/api/duplicados/no-son", {ids: g.miembros}); toast("Marcados como documentos distintos"); }
+      catch(e){ toast(e.message); }
+      await cargarDocs(); abrirDuplicados();
+    };
+  });
+  if(!$("#dlgDup").open) $("#dlgDup").showModal();
+}
+async function restaurar(id){
+  try{ await api("/api/duplicados/restaurar", {id}); toast("Documento restaurado"); } catch(e){ toast(e.message); }
+  await cargarDocs(); if($("#dlgDup").open) abrirDuplicados();
+}
+
+// ---------------- Respaldo
+async function fusionarRespaldo(file){
+  if(!confirm(`¿Fusionar «${file.name}» con la memoria actual?\nSe agregan los documentos que falten; no se borra ni sobrescribe nada.`)) return;
+  const r = await fetch("/api/respaldo/fusionar", {method:"POST", headers:{"Content-Type":"application/json"}, body: await file.text()});
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok){ toast(j.error || "Respaldo no válido"); return; }
+  toast(`Respaldo fusionado: ${j.agregados} agregados, ${j.actualizados} actualizados, ${j.sin_cambio} ya existían`);
+  await cargarDocs();
+}
+
 async function sondeo(){
   try{
     const s = await api("/api/estado?desde="+logDesde);
@@ -303,6 +472,14 @@ $("#filas").ondblclick = e => { const tr = e.target.closest("tr[data-id]"); if(t
 document.querySelectorAll("th[data-k]").forEach(th => th.onclick = () => { orden = {k:th.dataset.k, desc: orden.k===th.dataset.k ? !orden.desc : false}; pintar(); });
 $("#btnProcesar").onclick = async () => { try{ await api("/api/procesar",{}); $("#logBox").open=true; toast("Clasificando carpeta de origen…"); }catch(e){ toast(e.message); } };
 $("#btnCancelar").onclick = () => api("/api/cancelar",{});
+$("#btnWord").onclick = abrirWord;
+$("#btnGenerarWord").onclick = generarWord;
+$("#dlgWord").addEventListener("change", contarWord);
+$("#wTexto").addEventListener("input", contarWord);
+$("#btnDup").onclick = abrirDuplicados;
+$("#btnRespaldo").onclick = () => { location.href = "/api/respaldo"; toast("Descargando respaldo de la memoria"); };
+$("#btnFusionar").onclick = () => $("#fileRespaldo").click();
+$("#fileRespaldo").onchange = e => { if(e.target.files[0]) fusionarRespaldo(e.target.files[0]); e.target.value=""; };
 $("#btnCarpeta").onclick = () => api("/api/abrir",{}).catch(e=>toast(e.message));
 $("#btnExcel").onclick = () => api("/api/abrir",{que:"excel"}).catch(e=>toast(e.message));
 $("#btnDescargar").onclick = () => { location.href = "/api/excel"; };

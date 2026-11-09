@@ -4,7 +4,8 @@ import os
 from dataclasses import dataclass, field, asdict
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATOS_DIR = os.path.join(APP_DIR, "datos")
+# CLASIFICADOR_DATOS permite usar otra carpeta de datos (p. ej. para pruebas sin tocar la memoria real)
+DATOS_DIR = os.environ.get("CLASIFICADOR_DATOS") or os.path.join(APP_DIR, "datos")
 CONFIG_PATH = os.path.join(DATOS_DIR, "config.json")
 MEMORIA_PATH = os.path.join(DATOS_DIR, "memoria.json")
 

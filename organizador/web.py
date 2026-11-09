@@ -14,11 +14,13 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .config import APP_DIR, CATEGORIAS, CONFIG_PATH, DATOS_DIR, EXTENSIONES, MEMORIA_PATH, TIPOS, Config
+from . import duplicados
 from .excel import exportar
 from .extraccion import hash_archivo
 from .llm import ClienteOllama
 from .memoria import Memoria
 from .procesador import FECHA_RE, Procesador
+from .word import Filtros, generar_word, nombre_archivo_informe
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 NOMBRE_EXCEL = "Productividad_academica.xlsx"
@@ -35,6 +37,10 @@ class Estado:
         if not self.cfg.carpeta_destino:
             self.cfg.carpeta_destino = os.path.join(APP_DIR, "Docs clasificados")
         self.memoria = Memoria(MEMORIA_PATH)
+        try:
+            self.memoria.respaldo_diario(os.path.join(DATOS_DIR, "respaldos"))
+        except OSError:
+            pass
         self.log_lineas: deque = deque(maxlen=2000)
         self.log_total = 0
         self.lock = threading.Lock()
@@ -185,7 +191,38 @@ def crear_handler(estado: Estado, puerto: int):
                     "categorias": CATEGORIAS, "tipos": TIPOS,
                 })
             if ruta == "/api/documentos":
-                return self._json([_publico(r) for r in estado.memoria.lista()])
+                regs = estado.memoria.lista()
+                return self._json({"documentos": [_publico(r) for r in regs],
+                                   "duplicados": duplicados.grupos(regs)})
+            if ruta == "/api/respaldo":
+                from datetime import datetime
+                datos = estado.memoria.exportar_json()
+                nombre = f"respaldo_memoria_{datetime.now():%Y-%m-%d_%H%M}.json"
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(datos)))
+                self.send_header("Content-Disposition", f"attachment; filename={nombre}")
+                self.end_headers()
+                self.wfile.write(datos)
+                return
+            if ruta == "/api/word":
+                f = Filtros.desde_dict({
+                    "anios": [a for a in q.get("anios", [""])[0].split(",") if a],
+                    "categorias": [c for c in q.get("categorias", [""])[0].split("|") if c],
+                    "solo_verificados": q.get("solo_verificados", ["0"])[0] == "1",
+                    "incluir_anexo": q.get("anexo", ["1"])[0] == "1",
+                    "incluir_sin_mi_nombre": q.get("sin_mi_nombre", ["0"])[0] == "1",
+                    "texto": q.get("texto", [""])[0],
+                })
+                carpeta = os.path.join(estado.cfg.carpeta_destino, "Informes")
+                os.makedirs(carpeta, exist_ok=True)
+                destino = os.path.join(carpeta, nombre_archivo_informe(f))
+                try:
+                    res = generar_word(estado.memoria.lista(), destino, estado.cfg.nombre_completo, f)
+                except PermissionError:
+                    return self._json({"error": "Cierre el informe en Word para poder regenerarlo."}, 409)
+                estado.log(f"Informe Word ({res['documentos']} actividades, {res['periodo']}): {destino}")
+                return self._archivo(destino, descarga=os.path.basename(destino))
             if ruta == "/api/excel":
                 archivo = estado.exportar_excel()
                 return self._archivo(archivo, descarga=os.path.basename(archivo))
@@ -207,6 +244,16 @@ def crear_handler(estado: Estado, puerto: int):
             try:
                 if ruta == "/api/subir":
                     return self._subir(urllib.parse.parse_qs(url.query))
+                if ruta == "/api/respaldo/fusionar":
+                    n = int(self.headers.get("Content-Length") or 0)
+                    if n <= 0 or n > MAX_SUBIDA:
+                        return self._json({"error": "Archivo vacío o demasiado grande"}, 400)
+                    res = estado.memoria.fusionar(json.loads(self.rfile.read(n).decode("utf-8")))
+                    estado.memoria.guardar()
+                    estado.exportar_excel()
+                    estado.log(f"Respaldo fusionado: {res['agregados']} agregados, {res['actualizados']} "
+                               f"actualizados, {res['sin_cambio']} ya existían.")
+                    return self._json({"ok": True, **res})
                 datos = self._cuerpo_json()
                 if ruta == "/api/procesar":
                     origen = estado.cfg.carpeta_origen
@@ -231,6 +278,28 @@ def crear_handler(estado: Estado, puerto: int):
                         return self._json({"error": "No se encontró el archivo en disco."}, 400)
                     reg["verificado"] = False
                     estado.encolar([fuente], reprocesar=True)
+                    return self._json({"ok": True})
+                if ruta == "/api/duplicados/resolver":
+                    return self._resolver_duplicados(datos)
+                if ruta == "/api/duplicados/no-son":
+                    ids = [i for i in datos.get("ids", []) if estado.memoria.get(i)]
+                    for i in ids:
+                        r = estado.memoria.get(i)
+                        r["no_duplicado"] = sorted(set(r.get("no_duplicado") or []) | (set(ids) - {i}))
+                    estado.memoria.guardar()
+                    estado.exportar_excel()
+                    estado.log(f"Marcados como NO duplicados: {len(ids)} documentos.")
+                    return self._json({"ok": True})
+                if ruta == "/api/duplicados/restaurar":
+                    reg = estado.memoria.get(datos.get("id", ""))
+                    if not reg:
+                        return self._json({"error": "No existe"}, 404)
+                    reg["descartado"] = False
+                    reg.pop("duplicado_de", None)
+                    Procesador(estado.cfg, estado.memoria, log=estado.log).reubicar(reg, estado.cfg.carpeta_destino)
+                    estado.memoria.guardar()
+                    estado.exportar_excel()
+                    estado.log(f"Restaurado: {reg.get('archivo_nuevo')}")
                     return self._json({"ok": True})
                 if ruta == "/api/quitar":
                     estado.memoria.eliminar(datos.get("id", ""))
@@ -288,6 +357,30 @@ def crear_handler(estado: Estado, puerto: int):
             c.guardar(CONFIG_PATH)
             threading.Thread(target=estado.verificar_llm, daemon=True).start()
             return self._json({"ok": True})
+
+        def _resolver_duplicados(self, d):
+            conservar = estado.memoria.get(d.get("conservar", ""))
+            if not conservar:
+                return self._json({"error": "Documento a conservar no existe"}, 404)
+            proc = Procesador(estado.cfg, estado.memoria, log=estado.log)
+            conservar["descartado"] = False
+            conservar.pop("duplicado_de", None)
+            n = 0
+            for i in d.get("descartar", []):
+                r = estado.memoria.get(i)
+                if not r or i == conservar["id"]:
+                    continue
+                r["descartado"] = True
+                r["duplicado_de"] = conservar["id"]
+                proc.mover_a_duplicados(r, estado.cfg.carpeta_destino)
+                estado.memoria.upsert(r)
+                n += 1
+            proc.reubicar(conservar, estado.cfg.carpeta_destino)
+            estado.memoria.guardar()
+            estado.exportar_excel()
+            estado.log(f"Duplicados resueltos: se conserva «{conservar.get('archivo_nuevo')}», {n} descartado(s) "
+                       "(movidos a _Duplicados; no se borró nada).")
+            return self._json({"ok": True, "descartados": n})
 
         def _verificar(self, d):
             reg = estado.memoria.get(d.get("id", ""))

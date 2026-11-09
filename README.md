@@ -46,6 +46,31 @@ archivo ──► texto (PyMuPDF / RapidOCR) ──► reglas ─┐
 - **Por año y categoría**: conteos para el informe.
 - **Informe**: resúmenes agrupados por año y categoría, listos para copiar y pegar.
 
+### Informe general en Word
+
+Botón **Informe Word**: genera un `.docx` con resumen narrativo del periodo, tabla de actividades por
+categoría y año, el detalle de cada actividad (resumen formal) agrupado por año y categoría, y un anexo
+con la relación de documentos probatorios. Filtros: años (uno o varios, incluido "sin fecha"),
+categorías, solo verificados, búsqueda de texto y documentos donde no aparece el titular. Se descarga y
+queda guardado en `Destino/Informes/`. Los duplicados se cuentan una sola vez.
+
+### Identificador de duplicados
+
+- **Archivo idéntico** (mismo contenido): se reconoce al cargarlo y nunca se registra dos veces.
+- **Misma actividad**: misma fecha, categoría, titular y evento/título (p. ej. dos fotos o un escaneo y
+  un PDF de la misma constancia), o texto casi idéntico.
+
+El botón **Duplicados (n)** muestra cada grupo con vista previa. Puede conservar uno y descartar los
+demás (la copia se mueve a `Destino/_Duplicados`, no se borra nada y deja de contar en Excel y Word),
+marcar "No son duplicados" (no se vuelve a sugerir) o restaurar un descartado.
+
+### Respaldo
+
+- **Respaldo JSON** descarga toda la memoria (`respaldo_memoria_AAAA-MM-DD_HHMM.json`).
+- La app guarda además una copia automática diaria en `datos/respaldos/` (conserva las últimas 15).
+- En **Configuración → Restaurar / fusionar un respaldo** se puede cargar un respaldo: agrega los
+  documentos que falten y no borra ni sobrescribe los existentes.
+
 ### Memoria y "entrenamiento"
 
 `datos/memoria.json` guarda cada documento procesado (por hash, así no se duplica aunque lo vuelva a cargar).
@@ -95,6 +120,10 @@ python -m organizador procesar Docs "Docs clasificados"            # clasificar 
 python -m organizador entrenar Docs datos/etiquetas_docs.json       # importar etiquetas verificadas
 python -m organizador evaluar                                       # medir precisión
 python -m organizador excel "Docs clasificados/Productividad_academica.xlsx"
+python -m organizador word informe.docx --anios 2024 2025 --categorias Ponencia
+python -m organizador duplicados                                    # listar posibles duplicados
+python -m organizador respaldo respaldo.json                        # exportar memoria
+python -m organizador respaldo --fusionar respaldo.json             # fusionar un respaldo
 python -m organizador --sin-llm procesar ...                        # solo reglas
 ```
 
@@ -116,6 +145,8 @@ organizador/
   memoria.py             Memoria JSON + búsqueda de ejemplos similares
   procesador.py          Flujo completo, renombrado y copia
   excel.py               Exportación a Excel
+  word.py                Informe general en Word con filtros
+  duplicados.py          Identificador de duplicados
   cli.py                 Línea de comandos
 datos/                   (local, no se sube) config.json, memoria.json, etiquetas_docs.json
 ```

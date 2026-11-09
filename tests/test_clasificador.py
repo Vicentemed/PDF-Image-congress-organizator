@@ -3,6 +3,7 @@
 Ejecutar:  python -m unittest discover tests
 (No requieren Ollama ni los documentos reales.)
 """
+import json
 import os
 import sys
 import tempfile
@@ -118,6 +119,67 @@ class TestSalida(unittest.TestCase):
         unicos = _unicos(regs)
         self.assertEqual(len(unicos), 1)
         self.assertEqual(unicos[0]["id"], "b")
+
+
+class TestDuplicados(unittest.TestCase):
+    def _reg(self, i, **campos):
+        base = {"fecha": "2024-11-08", "categoria": "Coautoría", "titular": "Ana Pérez", "evento": "ENIO 2024",
+                "titulo": "", "mi_nombre_presente": True}
+        base.update(campos)
+        return {"id": i, "archivo_original": f"{i}.jpg", "campos": base, "texto": ""}
+
+    def test_misma_actividad_es_duplicado(self):
+        from organizador.duplicados import grupos
+        gs = grupos([self._reg("a"), self._reg("b", titular="Dra. Ana Pérez")])
+        self.assertEqual(len(gs), 1)
+        self.assertTrue(gs[0]["pendiente"])
+
+    def test_distinto_titular_no_es_duplicado(self):
+        from organizador.duplicados import grupos
+        self.assertEqual(grupos([self._reg("a"), self._reg("b", titular="Luis Gómez")]), [])
+
+    def test_no_duplicado_y_descartado(self):
+        from organizador.duplicados import grupos, unicos
+        a, b = self._reg("a"), self._reg("b")
+        a["no_duplicado"] = ["b"]
+        self.assertEqual(grupos([a, b]), [])
+        a2, b2 = self._reg("a"), self._reg("b")
+        b2.update(descartado=True, duplicado_de="a")
+        self.assertEqual([r["id"] for r in unicos([a2, b2])], ["a"])
+        self.assertFalse(grupos([a2, b2])[0]["pendiente"])
+
+
+class TestRespaldoYWord(unittest.TestCase):
+    def test_fusionar_no_sobrescribe(self):
+        with tempfile.TemporaryDirectory() as d:
+            m = Memoria(os.path.join(d, "m.json"))
+            id1, id2 = "1" * 64, "2" * 64
+            m.upsert({"id": id1, "archivo_original": "x.pdf", "campos": {"categoria": "Ponencia"}, "verificado": True})
+            data = json.loads(m.exportar_json())
+            data["documentos"][0]["campos"]["categoria"] = "Otro"  # versión distinta: no debe sobrescribir
+            data["documentos"].append({"id": id2, "archivo_original": "y.pdf", "campos": {"categoria": "Asistencia"}})
+            res = m.fusionar(data)
+            self.assertEqual((res["agregados"], res["sin_cambio"]), (1, 1))
+            self.assertEqual(m.get(id1)["campos"]["categoria"], "Ponencia")
+            with self.assertRaises(ValueError):
+                m.fusionar({"otra": 1})
+
+    def test_word_con_filtros(self):
+        from docx import Document
+        from organizador.word import Filtros, generar_word
+        regs = []
+        for i, (texto, fecha) in enumerate(((PONENCIA, "2025-02-21"), (REVISOR, "2024-11-27"))):
+            c = reglas.clasificar(texto, YO)
+            c["fecha"] = fecha
+            regs.append({"id": str(i), "archivo_original": f"{i}.pdf", "campos": c})
+        with tempfile.TemporaryDirectory() as d:
+            ruta = os.path.join(d, "i.docx")
+            res = generar_word(regs, ruta, "Dr. " + YO, Filtros(anios=["2025"]))
+            self.assertEqual(res["documentos"], 1)
+            texto = "\n".join(p.text for p in Document(ruta).paragraphs)
+            self.assertIn("Año 2025", texto)
+            self.assertNotIn("Año 2024", texto)
+            self.assertIn("una ponencia o conferencia", texto)
 
 
 if __name__ == "__main__":
