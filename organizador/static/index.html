@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clasificador de Constancias</title>
+<style>
+:root{
+  --bg:#f5f6f8; --panel:#fff; --ink:#1d2433; --muted:#667085; --line:#e4e7ec;
+  --accent:#1f4e78; --accent-ink:#fff; --ok:#e3f1e3; --ok-ink:#25633a; --warn:#fff4cf; --warn-ink:#7a5a00;
+  --soft:#eef3f8; --danger:#b42318;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font:14px/1.45 "Segoe UI",system-ui,sans-serif;color:var(--ink);background:var(--bg);display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:12px;padding:10px 18px;background:var(--accent);color:var(--accent-ink)}
+header h1{font-size:17px;margin:0;font-weight:600}
+header .sp{flex:1}
+.pill{font-size:12px;padding:3px 10px;border-radius:99px;background:rgba(255,255,255,.15);white-space:nowrap}
+.pill.ok::before{content:"● ";color:#7ee2a8}.pill.no::before{content:"○ ";color:#ffd38a}
+button{font:inherit;border:1px solid var(--line);background:#fff;color:var(--ink);padding:6px 12px;border-radius:6px;cursor:pointer}
+button:hover{background:var(--soft)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.primary:hover{filter:brightness(1.1)}
+header button{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.25);color:#fff}
+header button:hover{background:rgba(255,255,255,.22)}
+button:disabled{opacity:.5;cursor:default}
+main{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 460px;gap:12px;padding:12px;min-height:0}
+.col{display:flex;flex-direction:column;gap:10px;min-height:0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px}
+#drop{padding:18px;text-align:center;border:2px dashed #b7c4d4;background:#fafcff;cursor:pointer;transition:.15s}
+#drop.over{background:#e8f1fb;border-color:var(--accent)}
+#drop b{color:var(--accent)}
+#drop small{color:var(--muted);display:block;margin-top:2px}
+.bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px}
+.bar input,.bar select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6px}
+.stats{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
+.stat{font-size:12px;padding:2px 8px;border-radius:99px;background:var(--soft);color:var(--muted)}
+.stat b{color:var(--ink)}
+#progreso{height:4px;background:var(--line);border-radius:2px;overflow:hidden;margin:0 12px}
+#progreso div{height:100%;width:0;background:var(--accent);transition:width .3s}
+.tabla{flex:1;overflow:auto;min-height:0}
+table{width:100%;border-collapse:collapse}
+th{position:sticky;top:0;background:#f9fafb;text-align:left;font-weight:600;font-size:12px;color:var(--muted);padding:8px;border-bottom:1px solid var(--line);cursor:pointer;user-select:none}
+td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+tr{cursor:pointer}
+tbody tr:hover{background:#f8fafc}
+tr.sel{background:#e8f1fb!important}
+tr.revisar td:first-child{box-shadow:inset 3px 0 0 #e0b100}
+tr.ajeno{color:#98a2b3}
+.trunc{max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.badge{display:inline-block;font-size:11px;padding:1px 8px;border-radius:99px;background:var(--soft);white-space:nowrap}
+.e-verificado{background:var(--ok);color:var(--ok-ink)}.e-revisar{background:var(--warn);color:var(--warn-ink)}
+.e-alta{background:#eaf2ff;color:#1f4e78}.e-media{background:#f2f4f7;color:#475467}
+details.log{padding:0 12px 10px}
+details.log summary{cursor:pointer;color:var(--muted);font-size:12px;padding:6px 0}
+#log{margin:0;max-height:180px;overflow:auto;font:12px/1.4 Consolas,monospace;background:#0f172a;color:#d6e2f0;padding:8px;border-radius:6px;white-space:pre-wrap}
+#detalle{overflow:auto;padding:14px}
+#detalle h2{font-size:15px;margin:0 0 4px}
+#detalle .vacio{color:var(--muted);text-align:center;margin-top:40px}
+.preview{height:260px;border:1px solid var(--line);border-radius:8px;background:#f2f4f7;display:flex;align-items:center;justify-content:center;overflow:hidden;margin:8px 0}
+.preview img{max-width:100%;max-height:100%;object-fit:contain}
+.preview iframe{width:100%;height:100%;border:0}
+.form{display:grid;grid-template-columns:130px 1fr;gap:6px 8px;align-items:center}
+.form label{font-size:12px;color:var(--muted)}
+.form input,.form select,.form textarea{font:inherit;width:100%;padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:#fff}
+.form textarea{min-height:130px;resize:vertical}
+.full{grid-column:1/-1}
+.acciones{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.info{font-size:12px;color:var(--muted);margin-top:8px}
+.info .aviso{color:var(--warn-ink);background:var(--warn);padding:4px 8px;border-radius:6px;margin-top:4px}
+dialog{border:1px solid var(--line);border-radius:12px;padding:18px;width:min(560px,92vw)}
+dialog::backdrop{background:rgba(15,23,42,.35)}
+dialog h3{margin:0 0 12px}
+#toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#1d2433;color:#fff;padding:8px 16px;border-radius:8px;opacity:0;transition:.25s;pointer-events:none}
+#toast.on{opacity:1}
+td:first-child{white-space:nowrap}
+@media (max-width:1000px){
+  main{grid-template-columns:minmax(0,1fr)}
+  header{flex-wrap:wrap}
+  .trunc{max-width:200px}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Clasificador de Constancias Académicas</h1>
+  <span id="llm" class="pill no">verificando Qwen…</span>
+  <span class="sp"></span>
+  <button id="btnCarpeta" title="Abrir la carpeta con los archivos renombrados">Abrir carpeta</button>
+  <button id="btnExcel" title="Abrir el Excel consolidado">Abrir Excel</button>
+  <button id="btnDescargar" title="Descargar una copia del Excel">Descargar Excel</button>
+  <button id="btnConfig">Configuración</button>
+</header>
+
+<main>
+  <section class="col">
+    <div id="drop" class="card">
+      <b>Arrastra aquí tus constancias</b> (PDF, JPG, PNG) o haz clic para elegirlas
+      <small>Se identifican, clasifican, renombran, se resumen y se agregan al Excel automáticamente</small>
+      <input id="file" type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.bmp,.tif,.tiff,.webp" hidden>
+    </div>
+
+    <div class="card col" style="flex:1;min-height:0;gap:0">
+      <div class="bar">
+        <button id="btnProcesar" class="primary">▶ Clasificar carpeta de origen</button>
+        <button id="btnCancelar" disabled>Cancelar</button>
+        <input id="buscar" type="search" placeholder="Buscar…" style="width:200px">
+        <select id="fAnio"><option value="">Todos los años</option></select>
+        <select id="fCat"><option value="">Todas las categorías</option></select>
+        <select id="fEstado"><option value="">Todos</option><option value="revisar">Por revisar</option><option value="verificado">Verificados</option></select>
+        <div class="stats" id="stats"></div>
+      </div>
+      <div id="progreso"><div></div></div>
+      <div class="tabla">
+        <table>
+          <thead><tr>
+            <th data-k="fecha">Fecha</th><th data-k="categoria">Categoría</th><th data-k="evento">Evento / Título</th>
+            <th data-k="institucion">Institución</th><th data-k="archivo_nuevo">Archivo renombrado</th><th data-k="estado">Estado</th>
+          </tr></thead>
+          <tbody id="filas"></tbody>
+        </table>
+      </div>
+      <details class="log" id="logBox"><summary>Registro de actividad</summary><pre id="log"></pre></details>
+    </div>
+  </section>
+
+  <aside class="card" id="detalle"><p class="vacio">Selecciona un documento para ver el detalle,<br>corregirlo y copiar su resumen.</p></aside>
+</main>
+
+<dialog id="dlgConfig">
+  <h3>Configuración</h3>
+  <div class="form">
+    <label>Mi nombre</label><input id="cNombre">
+    <label>Grado</label><input id="cGrado" placeholder="Dr.">
+    <label>Carpeta de origen</label><input id="cOrigen">
+    <label>Carpeta de destino</label><input id="cDestino">
+    <label>Usar Qwen</label><label style="color:inherit"><input id="cLLM" type="checkbox" style="width:auto"> Clasificar con el modelo local de Ollama</label>
+    <label>Modelo</label><select id="cModelo"></select>
+  </div>
+  <p class="info">Los archivos que arrastres se guardan en la carpeta de origen; las copias renombradas y el Excel van a la carpeta de destino.</p>
+  <div class="acciones" style="justify-content:flex-end">
+    <button onclick="dlgConfig.close()">Cancelar</button>
+    <button class="primary" id="btnGuardarCfg">Guardar</button>
+  </div>
+</dialog>
+<div id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let docs = [], sel = null, logDesde = 0, orden = {k:"fecha", desc:true}, cfg = {}, CATS = [], TIPOS = [], trabajando = false;
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("on");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("on"),2600)}
+async function api(url, body){
+  const r = await fetch(url, body===undefined ? {} : {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+const estadoDe = d => d.verificado ? "verificado" : (d.confianza || "");
+const catDe = d => d.campos.mi_nombre_presente ? d.campos.categoria : "Sin mi nombre";
+
+async function cargarDocs(){
+  docs = await api("/api/documentos");
+  const anios = [...new Set(docs.map(d => (d.campos.fecha||"").slice(0,4) || "SinFecha"))].sort().reverse();
+  const fA = $("#fAnio"), v = fA.value;
+  fA.innerHTML = '<option value="">Todos los años</option>' + anios.map(a=>`<option>${a}</option>`).join("");
+  fA.value = v;
+  pintar();
+  if(sel) mostrar(sel, false);
+}
+
+function filtrados(){
+  const q = $("#buscar").value.toLowerCase(), a = $("#fAnio").value, c = $("#fCat").value, e = $("#fEstado").value;
+  return docs.filter(d => {
+    const anio = (d.campos.fecha||"").slice(0,4) || "SinFecha";
+    if(a && anio!==a) return false;
+    if(c && catDe(d)!==c) return false;
+    if(e==="revisar" && (d.verificado || d.confianza!=="revisar")) return false;
+    if(e==="verificado" && !d.verificado) return false;
+    if(q && !(JSON.stringify(d.campos)+d.archivo_original+(d.archivo_nuevo||"")).toLowerCase().includes(q)) return false;
+    return true;
+  });
+}
+
+function pintar(){
+  const val = (d,k) => k==="estado" ? estadoDe(d) : k==="archivo_nuevo" ? (d.archivo_nuevo||d.archivo_original) :
+                       k==="categoria" ? catDe(d) : k==="evento" ? (d.campos.evento||d.campos.titulo||"") : (d.campos[k]||"");
+  const lista = filtrados().sort((x,y)=>{const a=val(x,orden.k), b=val(y,orden.k);return (a<b?-1:a>b?1:0)*(orden.desc?-1:1)});
+  $("#filas").innerHTML = lista.map(d => {
+    const est = estadoDe(d);
+    const cls = [d.id===sel?"sel":"", est==="revisar"?"revisar":"", d.campos.mi_nombre_presente?"":"ajeno"].join(" ");
+    return `<tr data-id="${d.id}" class="${cls}">
+      <td>${esc(d.campos.fecha||"—")}</td>
+      <td><span class="badge">${esc(catDe(d))}</span></td>
+      <td><div class="trunc" title="${esc(d.campos.evento||d.campos.titulo)}">${esc(d.campos.evento||d.campos.titulo||"—")}</div></td>
+      <td><div class="trunc" style="max-width:220px" title="${esc(d.campos.institucion)}">${esc(d.campos.institucion||"—")}</div></td>
+      <td><div class="trunc" style="max-width:260px" title="${esc(d.archivo_nuevo)}">${esc(d.archivo_nuevo||d.archivo_original)}</div></td>
+      <td><span class="badge e-${est}">${esc(est)}</span></td></tr>`;
+  }).join("") || `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:30px">Sin documentos. Arrastra archivos arriba o clasifica la carpeta de origen.</td></tr>`;
+  const ver = docs.filter(d=>d.verificado).length, rev = docs.filter(d=>!d.verificado && d.confianza==="revisar").length;
+  $("#stats").innerHTML = `<span class="stat"><b>${lista.length}</b> de ${docs.length}</span><span class="stat"><b>${ver}</b> verificados</span><span class="stat"><b>${rev}</b> por revisar</span>`;
+}
+
+function campoInput(k, label, valor, tipo){
+  if(tipo==="select") return `<label>${label}</label><select data-k="${k}">${(k==="categoria"?CATS:TIPOS).map(o=>`<option ${o===valor?"selected":""}>${esc(o)}</option>`).join("")}</select>`;
+  return `<label>${label}</label><input data-k="${k}" value="${esc(valor)}">`;
+}
+
+function mostrar(id, recargarVista=true){
+  const d = docs.find(x=>x.id===id); if(!d) return;
+  sel = id;
+  document.querySelectorAll("#filas tr").forEach(tr=>tr.classList.toggle("sel", tr.dataset.id===id));
+  const c = d.campos, esPdf = /\.pdf$/i.test(d.archivo_original);
+  const prev = $("#detalle .preview");
+  const vista = (!recargarVista && prev && prev.dataset.id===id) ? prev.outerHTML :
+    `<div class="preview" data-id="${id}">${esPdf ? `<iframe src="/api/archivo/${id}#view=FitH&toolbar=0"></iframe>` : `<img src="/api/archivo/${id}" alt="">`}</div>`;
+  const avisos = (d.avisos||[]).map(a=>`<div class="aviso">${esc(a)}</div>`).join("") + (d.posible_duplicado?`<div class="aviso">Posible duplicado de: ${esc(d.posible_duplicado)}</div>`:"");
+  $("#detalle").innerHTML = `
+    <h2>${esc(d.archivo_nuevo||d.archivo_original)}</h2>
+    <div class="info">Original: ${esc(d.archivo_original)} · <span class="badge e-${estadoDe(d)}">${esc(estadoDe(d))}</span></div>
+    ${vista}
+    <div class="form">
+      ${campoInput("tipo_documento","Tipo de documento",c.tipo_documento,"select")}
+      ${campoInput("categoria","Categoría",c.categoria,"select")}
+      <label>¿Aparece mi nombre?</label><label style="color:inherit"><input type="checkbox" data-k="mi_nombre_presente" style="width:auto" ${c.mi_nombre_presente?"checked":""}> Sí</label>
+      ${campoInput("titular","Titular",c.titular)}
+      ${campoInput("fecha","Fecha (AAAA-MM-DD)",c.fecha)}
+      ${campoInput("fecha_evento","Fechas del evento",c.fecha_evento)}
+      ${campoInput("institucion","Institución",c.institucion)}
+      ${campoInput("evento","Evento / Revista",c.evento)}
+      ${campoInput("titulo","Título / Tema",c.titulo)}
+      ${campoInput("lugar","Lugar",c.lugar)}
+      ${campoInput("horas","Horas",c.horas)}
+      <label class="full">Resumen para el informe</label>
+      <textarea class="full" data-k="resumen">${esc(c.resumen)}</textarea>
+    </div>
+    <div class="acciones">
+      <button class="primary" id="btnVerificar">✔ Guardar y verificar</button>
+      <button id="btnCopiar">Copiar resumen</button>
+      <button id="btnAbrirDoc">Abrir archivo</button>
+      <button id="btnReclas">Reclasificar</button>
+      <button id="btnQuitar" style="margin-left:auto;color:var(--danger)">Quitar</button>
+    </div>
+    <div class="info">Método: ${esc(d.metodo||"")} ${avisos}</div>
+    <p class="info">Al guardar, el documento queda como ejemplo verificado: Qwen lo usará para clasificar los siguientes documentos parecidos.</p>`;
+  $("#btnVerificar").onclick = () => verificar(d.id);
+  $("#btnCopiar").onclick = () => { navigator.clipboard.writeText($("#detalle textarea").value); toast("Resumen copiado"); };
+  $("#btnAbrirDoc").onclick = () => api("/api/abrir", {id:d.id}).catch(e=>toast(e.message));
+  $("#btnReclas").onclick = async () => {
+    if(d.verificado && !confirm("Este documento está verificado. ¿Volver a clasificarlo con el modelo?")) return;
+    await api("/api/reclasificar",{id:d.id}).catch(e=>toast(e.message)); toast("Reclasificando…"); $("#logBox").open = true;
+  };
+  $("#btnQuitar").onclick = async () => {
+    if(!confirm("¿Quitar este documento de la memoria y del Excel? (No se borra ningún archivo del disco.)")) return;
+    await api("/api/quitar",{id:d.id}); sel=null; $("#detalle").innerHTML='<p class="vacio">Documento quitado.</p>'; cargarDocs();
+  };
+}
+
+async function verificar(id){
+  const campos = {};
+  document.querySelectorAll("#detalle [data-k]").forEach(el => campos[el.dataset.k] = el.type==="checkbox" ? el.checked : el.value);
+  try{ await api("/api/verificar",{id, campos}); toast("Guardado, renombrado y verificado"); await cargarDocs(); }
+  catch(e){ toast(e.message); }
+}
+
+async function subir(files){
+  const lista = [...files].filter(f => /\.(pdf|jpe?g|png|bmp|tiff?|webp)$/i.test(f.name));
+  if(!lista.length){ toast("Solo PDF o imágenes"); return; }
+  $("#logBox").open = true;
+  for(const f of lista){
+    const r = await fetch("/api/subir?nombre="+encodeURIComponent(f.name), {method:"POST", body:f});
+    if(!r.ok){ const j = await r.json().catch(()=>({})); toast(j.error||"Error al subir "+f.name); }
+  }
+  toast(`${lista.length} archivo(s) recibidos; clasificando…`);
+}
+
+async function sondeo(){
+  try{
+    const s = await api("/api/estado?desde="+logDesde);
+    if(s.log.length){ const pre=$("#log"); pre.textContent += s.log.join("\n")+"\n"; pre.scrollTop = pre.scrollHeight; }
+    logDesde = s.log_total; cfg = s.config; CATS = s.categorias; TIPOS = s.tipos;
+    if($("#fCat").options.length===1) $("#fCat").innerHTML += [...CATS,"Sin mi nombre"].map(c=>`<option>${esc(c)}</option>`).join("");
+    const l = $("#llm"); l.textContent = s.llm.msg; l.className = "pill " + (s.llm.ok?"ok":"no");
+    const [i,n] = s.progreso; $("#progreso div").style.width = s.trabajando && n ? (100*i/n)+"%" : "0";
+    $("#btnProcesar").disabled = s.trabajando; $("#btnCancelar").disabled = !s.trabajando;
+    if(s.log.length || trabajando !== s.trabajando) await cargarDocs();
+    trabajando = s.trabajando;
+  }catch(e){ $("#llm").textContent = "Servidor detenido"; $("#llm").className="pill no"; }
+  setTimeout(sondeo, trabajando ? 1000 : 2500);
+}
+
+// eventos
+const drop = $("#drop");
+drop.onclick = () => $("#file").click();
+$("#file").onchange = e => { subir(e.target.files); e.target.value=""; };
+["dragenter","dragover"].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave","drop"].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); if(ev==="drop"||e.target===document.documentElement) drop.classList.remove("over"); }));
+document.addEventListener("drop", e => { drop.classList.remove("over"); if(e.dataTransfer.files.length) subir(e.dataTransfer.files); });
+$("#filas").onclick = e => { const tr = e.target.closest("tr[data-id]"); if(tr) mostrar(tr.dataset.id); };
+$("#filas").ondblclick = e => { const tr = e.target.closest("tr[data-id]"); if(tr) api("/api/abrir",{id:tr.dataset.id}); };
+["#buscar","#fAnio","#fCat","#fEstado"].forEach(s => $(s).addEventListener("input", pintar));
+document.querySelectorAll("th[data-k]").forEach(th => th.onclick = () => { orden = {k:th.dataset.k, desc: orden.k===th.dataset.k ? !orden.desc : false}; pintar(); });
+$("#btnProcesar").onclick = async () => { try{ await api("/api/procesar",{}); $("#logBox").open=true; toast("Clasificando carpeta de origen…"); }catch(e){ toast(e.message); } };
+$("#btnCancelar").onclick = () => api("/api/cancelar",{});
+$("#btnCarpeta").onclick = () => api("/api/abrir",{}).catch(e=>toast(e.message));
+$("#btnExcel").onclick = () => api("/api/abrir",{que:"excel"}).catch(e=>toast(e.message));
+$("#btnDescargar").onclick = () => { location.href = "/api/excel"; };
+$("#btnConfig").onclick = () => {
+  $("#cNombre").value = cfg.mi_nombre; $("#cGrado").value = cfg.grado; $("#cOrigen").value = cfg.carpeta_origen;
+  $("#cDestino").value = cfg.carpeta_destino; $("#cLLM").checked = cfg.usar_llm;
+  fetch("/api/estado?desde=999999").then(r=>r.json()).then(s => {
+    const ms = s.llm.modelos.length ? s.llm.modelos : [cfg.modelo];
+    $("#cModelo").innerHTML = ms.map(m=>`<option ${m===cfg.modelo?"selected":""}>${esc(m)}</option>`).join("");
+  });
+  $("#dlgConfig").showModal();
+};
+$("#btnGuardarCfg").onclick = async () => {
+  await api("/api/config",{mi_nombre:$("#cNombre").value, grado:$("#cGrado").value, carpeta_origen:$("#cOrigen").value,
+    carpeta_destino:$("#cDestino").value, usar_llm:$("#cLLM").checked, modelo:$("#cModelo").value});
+  $("#dlgConfig").close(); toast("Configuración guardada");
+};
+cargarDocs().then(sondeo);
+</script>
+</body>
+</html>
