@@ -9,3 +9,4 @@ test_pdfs/
 *.spec
 dist/
 build/
+app_r/
